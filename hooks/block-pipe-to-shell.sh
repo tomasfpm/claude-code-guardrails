@@ -17,10 +17,21 @@
 # text needs code, and code is what a hook is.
 #
 # WHAT IT BLOCKS
-#   anything | sh|bash|zsh|ksh|dash        curl … | sudo bash        wget -O- … | sh
-#   the classic fork bomb
+#   … | sh / bash / zsh / ksh / dash / fish   with sudo, env, xargs, flags, a path or quotes
+#   … | python / perl / ruby / node with no script   (the interpreter reads code from stdin)
+#   bash <(curl …)        sh -c "$(curl …)"        … | $SHELL        the classic fork bomb
 # It does NOT block downloading a script, reading it, and then running it. That is the point:
 # the danger is executing bytes nobody looked at, not fetching them.
+#
+# ⚠️ WHAT IT IS NOT: a security boundary. It is a regex over the command text, and shell has
+# endless spellings - base64, a variable holding the word "bash", a script written to disk and
+# run by the next command. It catches the common spellings a model writes out of habit, or
+# that a README tells it to paste. The real controls are Claude Code's permission prompt and
+# a sandbox. A security review of this repo got past the first version five different ways;
+# those five are now in the tests, and the claim is now smaller.
+#
+# It will also block `make || bash fix.sh`, because `||` contains a pipe character. Rare, and
+# the direction to be wrong in.
 #
 # EXIT CODES: 0 = allow, 2 = block and tell Claude why (stderr is shown to the model).
 
@@ -57,12 +68,25 @@ print((d.get("tool_input") or {}).get("command", ""))
 
 [ -z "$cmd" ] && exit 0
 
-# Pipe into a shell interpreter, with or without sudo and with or without an absolute path.
-if printf '%s' "$cmd" | grep -Eq '\|[[:space:]]*(sudo[[:space:]]+)?(/(usr/)?bin/)?(ba|z|k|da)?sh([[:space:]]|$)'; then
-  echo "BLOCKED: piping content directly into a shell executes code nobody has read." >&2
-  echo "Download it, read it, then run it as a file — that is the whole difference." >&2
-  exit 2
-fi
+# Each pattern is one way of running text as code without it ever being a file you can read.
+WRAP='((sudo|env|xargs|command|exec|nohup)([[:space:]]+-[^[:space:]]+)*[[:space:]]+)*'
+Q="[\"']?"
+SHELLS="${Q}([^[:space:]|;&\"']*/)?(ba|z|k|da|fi)?sh${Q}"
+END='([[:space:];&|)]|$)'
+patterns=(
+  "\\|[[:space:]]*${WRAP}${SHELLS}${END}"                                          # … | sudo -E bash
+  "\\|[[:space:]]*${WRAP}(python[0-9.]*|perl|ruby|node)[[:space:]]*(-[[:space:]]*)?([;&|)]|\$)"  # … | python3 -
+  "\\|[[:space:]]*${WRAP}${Q}\\\$\\{?SHELL"                                         # … | \$SHELL
+  "(ba|z|k|da|fi)?sh[[:space:]]+<\\([[:space:]]*(curl|wget)"                         # bash <(curl …)
+  "-c[[:space:]]+${Q}(\\\$\\(|\`)[[:space:]]*(curl|wget)"                            # sh -c "\$(curl …)"
+)
+for re in "${patterns[@]}"; do
+  if printf '%s' "$cmd" | grep -Eq -- "$re"; then
+    echo "BLOCKED: this runs downloaded or piped text as code that nobody has read." >&2
+    echo "Download it to a file, read it, then run the file — that is the whole difference." >&2
+    exit 2
+  fi
+done
 
 # The classic fork bomb, and the reason the old pattern rule could not express it.
 if printf '%s' "$cmd" | grep -Eq ':\(\)[[:space:]]*\{.*\|.*&[[:space:]]*\}[[:space:]]*;[[:space:]]*:'; then

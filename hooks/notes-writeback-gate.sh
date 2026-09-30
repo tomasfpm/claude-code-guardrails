@@ -67,5 +67,9 @@ $(git -C "$NOTES" status --porcelain 2>/dev/null)
 EOF
 [ "$n" -eq 0 ] && exit 0
 
-printf '{"decision":"block","reason":"The notes repo has %s uncommitted change(s) at %s. Commit and push before finishing: git add -A, then commit, then git pull --rebase, then git push. If the edits were unintended, revert them instead. Do not leave notes uncommitted — other sessions and machines cannot see them."}' "$n" "$NOTES"
+# Escape the path for JSON. A Windows path is full of backslashes, and Claude Code ignores
+# invalid JSON from a Stop hook - so an unescaped path would make this gate fail open, silently.
+NOTES_JSON=$(printf '%s' "$NOTES" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+
+printf '{"decision":"block","reason":"The notes repo has %s uncommitted change(s) at %s. Commit and push before finishing: git add -A, then commit, then git pull --rebase, then git push. If the edits were unintended, revert them instead. Do not leave notes uncommitted — other sessions and machines cannot see them."}' "$n" "$NOTES_JSON"
 exit 0

@@ -45,7 +45,7 @@ for r in "${REPOS[@]}"; do
 
   # Only files that differ from HEAD - a small set, so this stays cheap enough to run
   # after every Bash call. Covers staged and unstaged alike.
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
     [ -f "$r/$f" ] || continue          # deleted, not emptied - that is a normal git op
     [ -s "$r/$f" ] && continue          # still has content
@@ -56,7 +56,8 @@ for r in "${REPOS[@]}"; do
     [ "${was:-0}" -gt 0 ] || continue
 
     emptied="${emptied}  $(basename "$r")/$f — was ${was} bytes in HEAD, now 0"$'\n'
-  done < <(git -C "$r" diff --name-only HEAD 2>/dev/null)
+  # -z and quotePath=false: otherwise git prints "caf\303\251.md" and the file is skipped.
+  done < <(git -C "$r" -c core.quotePath=false diff --name-only -z HEAD 2>/dev/null)
 done
 
 [ -z "$emptied" ] && exit 0

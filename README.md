@@ -15,6 +15,9 @@ when a session starts, before a command runs, after a command runs, when the ses
 end. The model does not get a vote. It is the difference between a sign saying "mind the
 step" and a handrail.
 
+A handrail is not a wall, though. Most of these hooks catch *accidents* reliably. The one
+aimed at *attacks* - the pipe guard - is a speed bump, and the table below says so.
+
 An **agent** here means a second, separate copy of Claude that starts with a blank memory,
 does one job and reports back. The three in this repo are reviewers. Their value comes from
 *not* having seen the conversation that produced the work they are checking.
@@ -25,7 +28,7 @@ does one job and reports back. The three in this repo are reviewers. Their value
 
 | Hook | When it runs | What it does | Why it exists |
 |---|---|---|---|
-| `block-pipe-to-shell.sh` | before every shell command | refuses `curl … \| sh`, `wget … \| sudo bash` and the fork bomb | the permission-rule version of this is **silently invalid** — Claude Code warns once and enforces nothing |
+| `block-pipe-to-shell.sh` | before every shell command | refuses the common ways of running downloaded text as code: `curl … \| sh`, `bash <(curl …)`, `… \| python3 -`, the fork bomb. **A speed bump, not a security boundary** — it reads the command's text, and shell has endless spellings. Keep the permission prompt on | the permission-rule version of this is **silently invalid** — Claude Code warns once and enforces nothing |
 | `zero-byte-guard.sh` | after every shell command | notices when a tracked file that had content is now 0 bytes, and puts the one-line recovery in front of the model | a failed write truncated three files in one week, and a written rule about it prevented none of them |
 | `session-clock.sh` | session start and end | tells Claude the time and how long since the last session on this machine | the model knows the date but not the gap, and once reasoned as if the user were still on holiday days after they got back |
 | `notes-pull.sh` | session start (async) | rebases a shared notes repo, but only if its tree is clean | several sessions on several machines share one notes repo |
@@ -137,10 +140,14 @@ For `the-clerk` and `should-i-run.sh`, list your repos one per line in
 bash tests/run.sh
 ```
 
-23 cases, run against throwaway git repos in a temp folder — nothing on your machine is
+41 cases, run against throwaway git repos in a temp folder — nothing on your machine is
 touched. The payloads are passed with `< file`, never `echo … |`, because run through Claude
 Code the pipe guard would block the test itself: feeding a hook its own input looks exactly
 like piping a download into a shell.
+
+Eleven of the pipe-guard cases, and two others, come from a security review of the first
+version, which got past it in five ways and found two quieter gaps. Each one is now a test
+that fails on the old code and passes on the new.
 
 ## Licence
 
